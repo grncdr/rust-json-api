@@ -1,0 +1,47 @@
+extern crate iron;
+extern crate logger;
+extern crate bodyparser;
+extern crate persistent;
+
+extern crate serde_json;
+extern crate json_patch;
+
+use iron::prelude::*;
+use iron::typemap::Key;
+use iron::status;
+use logger::Logger;
+use persistent::State;
+use serde_json::Value;
+use json_patch::{Patch, apply};
+
+pub struct RootValue;
+impl Key for RootValue { type Value = serde_json::Value; }
+
+fn serve_patch(req: &mut Request) -> IronResult<Response> {
+    let body = match req.get::<bodyparser::Raw>() {
+        Ok(Some(body)) => body,
+        Ok(None) => return Ok(Response::with((status::Ok, "nope"))),
+        Err(err) => return Err(err),
+    };
+    let patch = Patch::from_str(body);
+    let mutex = req.get::<State<RootValue>>().unwrap();
+    let mut root = mutex.lock();
+
+    apply(&patch, &mut root).unwrap();
+
+    Ok(Response::with((status::Ok, format!("{:?}", root))))
+}
+
+
+pub fn main() {
+    let mut chain = Chain::new(serve_patch);
+
+    let (logger_before, logger_after) = Logger::new(None);
+    chain.link_before(logger_before);
+    chain.link_after(logger_after);
+
+    let mut root_value: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
+    chain.link(State::<RootValue>::both(root_value));
+
+    Iron::new(chain).http("localhost:3030").unwrap();
+}

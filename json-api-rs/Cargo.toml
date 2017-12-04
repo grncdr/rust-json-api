@@ -1,0 +1,17 @@
+[package]
+name = "json-api"
+version = "0.1.0"
+authors = ["Stephen Sugden <me@stephensugden.com>"]
+
+[features]
+#default = ["aster/with-syntex", "quasi/with-syntex", "quasi_codegen/with-syntex"]
+
+[dependencies]
+serde_json = "*"
+rustful = "*"
+unicase = "1.0"
+hyper = "*"
+mime = "*"
+
+[dependencies.json_patch]
+path = "../json_patch"

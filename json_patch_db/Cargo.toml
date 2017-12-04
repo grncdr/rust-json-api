@@ -1,0 +1,10 @@
+[package]
+name = "json_patch_db"
+version = "0.1.0"
+authors = ["Stephen Sugden <me@stephensugden.com>"]
+
+[dependencies]
+serde_json = "*"
+
+[dependencies.json_patch]
+path = "../json_patch"

@@ -1,0 +1,130 @@
+#![feature(plugin,custom_derive)]
+#![feature(slice_patterns)]
+#![feature(slice_splits)]
+#![plugin(serde_macros)]
+
+extern crate serde;
+extern crate serde_json;
+
+//mod hrm;
+mod patch;
+
+pub use patch::apply;
+
+use std::error::Error;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RawOp {
+    op: String,
+    path: String,
+    value: Option<serde_json::Value>,
+    from: Option<String>,
+}
+
+pub type Path = Vec<String>;
+
+#[derive(Debug)]
+pub enum Op {
+    Add(Path, serde_json::Value),
+    Remove(Path),
+    Replace(Path, serde_json::Value),
+    Copy(Path, Path),
+    Move(Path, Path),
+    Test(Path, serde_json::Value),
+}
+
+#[derive(Debug)]
+pub enum ParseError {
+    Syntax(String),
+    Schema(String),
+}
+
+impl From<serde_json::Error> for ParseError {
+    fn from(e: serde_json::Error) -> ParseError {
+        ParseError::Syntax(e.description().to_string())
+    }
+}
+
+pub type Patch = Vec<Op>;
+
+pub fn from_str(s: &str) -> Result<Patch, ParseError> {
+    convert_raw_ops(try!(serde_json::from_str(s)))
+}
+
+pub fn from_slice(s: &[u8]) -> Result<Patch, ParseError> {
+    convert_raw_ops(try!(serde_json::from_slice(s)))
+}
+
+fn convert_raw_ops(raw_ops: Vec<RawOp>) -> Result<Patch, ParseError> {
+    raw_ops.into_iter().map(|raw| Op::from_raw(raw)).collect()
+}
+
+impl Op {
+    fn from_raw<'a>(raw: RawOp) -> Result<Op, ParseError> {
+        let path = util::parse_path(&raw.path);
+        match raw.op.as_ref() {
+            "add" => {
+                let v = try!(util::extract_value(raw));
+                Ok(Op::Add(path, v))
+            }
+            "remove" => Ok(Op::Remove(path)),
+            "replace" => {
+                let v = try!(util::extract_value(raw));
+                Ok(Op::Replace(path, v))
+            }
+            "test" => {
+                let v = try!(util::extract_value(raw));
+                Ok(Op::Test(path, v))
+            }
+            "copy" => {
+                let from = try!(util::extract_from(raw));
+                Ok(Op::Copy(path, from))
+            }
+            "move" => {
+                let from = try!(util::extract_from(raw));
+                Ok(Op::Move(path, from))
+            }
+            _ => Err(ParseError::Schema(format!("Invalid op \"{}\"", raw.op).to_string())),
+        }
+    }
+}
+
+#[test]
+fn parse_a_simple_patch() {
+    let patch = from_str(r#"[{"op":"add","path":"","value":12}]"#).unwrap();
+    assert!(patch.len() > 0);
+    let op = &patch[0];
+    match op {
+        &Op::Add(ref _path, ref value) => match value.as_u64() {
+            Some(v) => assert_eq!(v, 12),
+            _ => assert!(false),
+        },
+        _ => assert!(false),
+    };
+    println!("Booooyah: {:?}", patch)
+}
+
+mod util {
+    use serde_json;
+    use Path;
+    use ParseError;
+    pub use RawOp;
+
+    pub fn parse_path(s: &str) -> Path {
+        s.split("/").skip(1).map(|s| s.to_string()).collect()
+    }
+
+    pub fn extract_value(raw: RawOp) -> Result<serde_json::Value, ParseError> {
+        match raw.value {
+            Some(v) => Ok(v),
+            None => Err(ParseError::Schema("operation must include a value".to_string())),
+        }
+    }
+
+    pub fn extract_from(raw: RawOp) -> Result<Path, ParseError> {
+        match raw.from {
+            Some(s) => Ok(parse_path(&s)),
+            None => Err(ParseError::Schema("operation must include a \"from\" path".to_string())),
+        }
+    }
+}
